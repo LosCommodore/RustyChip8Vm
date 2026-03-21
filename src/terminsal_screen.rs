@@ -18,7 +18,6 @@ pub struct TerminalScreen<'a, T> {
 
 impl<'a, T> TerminalScreen<'a, T> {
     pub fn new(memory: &'a Array2<T>) -> Result<Self> {
-        // Terminal Setup
         stdout().execute(EnterAlternateScreen)?;
         enable_raw_mode()?;
         let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -29,11 +28,8 @@ impl<'a, T> TerminalScreen<'a, T> {
 
 impl<'a, T> Drop for TerminalScreen<'a, T> {
     fn drop(&mut self) {
-        // Wir nutzen let _ = um Fehler im Destruktor zu schlucken
         let _ = disable_raw_mode();
         let _ = stdout().execute(LeaveAlternateScreen);
-
-        // Optional: Cursor wieder zeigen, falls er versteckt war
         let _ = stdout().execute(crossterm::cursor::Show);
     }
 }

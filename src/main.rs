@@ -1,3 +1,4 @@
+mod chip8;
 mod terminsal_screen;
 mod traits;
 use std::{thread, time::Duration};

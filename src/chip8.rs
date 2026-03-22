@@ -35,7 +35,7 @@ pub struct Registers {
 #[allow(unused)]
 struct Chip8 {
     reg: Registers,
-    ram: Box<[u8; 1024 * 4]>, // 4kb ram, first 512bytes used by VM
+    ram: [u8; 1024 * 4], // 4kb ram, first 512bytes used by VM
 }
 
 impl Chip8 {
@@ -46,7 +46,7 @@ impl Chip8 {
         reg.pc = 0x200;
 
         // Initilize RAM
-        let mut ram = Box::new([0; MEM_SIZE]);
+        let mut ram = [0; MEM_SIZE];
         ram[..FONT_SET.len()].copy_from_slice(&FONT_SET);
         ram[512..512 + program.len()].copy_from_slice(program);
         Self { reg, ram }

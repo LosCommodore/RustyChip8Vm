@@ -1,4 +1,13 @@
 const MEM_SIZE: usize = 1024 * 4;
+const SCREEN_WIDTH: usize = 32;
+const SCREEN_HEIGHT: usize = 16;
+use anyhow::Ok;
+use anyhow::Result;
+use ndarray::Array2;
+use std::thread;
+use std::time::Duration;
+
+use crate::traits::Screen;
 
 // The font set, hardcoded
 const FONT_SET: [u8; 5 * 16] = [
@@ -33,14 +42,16 @@ pub struct Registers {
 }
 
 #[allow(unused)]
-struct Chip8 {
+pub struct Chip8<S: Screen> {
     reg: Registers,
     ram: [u8; 1024 * 4], // 4kb ram, first 512bytes used by VM
+    screen_mem: Array2<bool>,
+    screen: S,
 }
 
-impl Chip8 {
+impl<S: Screen> Chip8<S> {
     #[allow(unused)]
-    pub fn new(program: &[u8]) -> Self {
+    pub fn new(program: &[u8], screen: S) -> Self {
         // Initialize registers
         let mut reg = Registers::default();
         reg.pc = 0x200;
@@ -49,7 +60,14 @@ impl Chip8 {
         let mut ram = [0; MEM_SIZE];
         ram[..FONT_SET.len()].copy_from_slice(&FONT_SET);
         ram[512..512 + program.len()].copy_from_slice(program);
-        Self { reg, ram }
+
+        let screen_mem = Array2::<bool>::from_elem((SCREEN_HEIGHT, SCREEN_WIDTH), false);
+        Self {
+            reg,
+            ram,
+            screen,
+            screen_mem,
+        }
     }
 
     #[allow(unused)]
@@ -84,5 +102,16 @@ impl Chip8 {
 
             _ => unimplemented!(),
         }
+    }
+
+    pub fn run(&mut self) -> Result<()> {
+        loop {
+            self.screen.draw(&self.screen_mem)?;
+            if self.screen.key_input()? == Some('q') {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        Ok(())
     }
 }

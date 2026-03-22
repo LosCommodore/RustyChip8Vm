@@ -11,22 +11,21 @@ use crossterm::{
 use ndarray::Array2;
 use ratatui::{prelude::*, widgets::*};
 use std::io::{Stdout, stdout};
-pub struct TerminalScreen<'a, T> {
-    memory: &'a Array2<T>,
+pub struct TerminalScreen {
     terminal: Terminal<CrosstermBackend<Stdout>>,
 }
 
-impl<'a, T> TerminalScreen<'a, T> {
-    pub fn new(memory: &'a Array2<T>) -> Result<Self> {
+impl<'a> TerminalScreen {
+    pub fn new() -> Result<Self> {
         stdout().execute(EnterAlternateScreen)?;
         enable_raw_mode()?;
         let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
 
-        Ok(Self { memory, terminal })
+        Ok(Self { terminal })
     }
 }
 
-impl<'a, T> Drop for TerminalScreen<'a, T> {
+impl Drop for TerminalScreen {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
         let _ = stdout().execute(LeaveAlternateScreen);
@@ -34,19 +33,19 @@ impl<'a, T> Drop for TerminalScreen<'a, T> {
     }
 }
 
-impl<'a> Screen for TerminalScreen<'a, bool> {
-    fn draw(&mut self) -> Result<()> {
+impl<'a> Screen for TerminalScreen {
+    fn draw(&mut self, mem: &Array2<bool>) -> Result<()> {
         const WHITE: Color = Color::Rgb(255, 255, 255);
         const BLACK: Color = Color::Rgb(0, 0, 0);
 
         self.terminal.draw(|f| {
-            let (height, width) = self.memory.dim();
+            let (height, width) = mem.dim();
             let area = Rect::new(0, 0, width as u16, height as u16);
             let mut lines = Vec::new();
             for y in 0..height {
                 let mut spans = Vec::new();
                 for x in 0..width {
-                    let color = if self.memory[[y, x]] { BLACK } else { WHITE };
+                    let color = if mem[[y, x]] { BLACK } else { WHITE };
                     spans.push(Span::styled("  ", Style::default().bg(color)));
                 }
                 lines.push(Line::from(spans));

@@ -3,6 +3,7 @@ const SCREEN_WIDTH: usize = 32;
 const SCREEN_HEIGHT: usize = 16;
 use anyhow::Ok;
 use anyhow::Result;
+use anyhow::bail;
 use ndarray::Array2;
 use std::thread;
 use std::time::Duration;
@@ -47,6 +48,11 @@ pub struct Chip8<S: Screen> {
     ram: [u8; 1024 * 4], // 4kb ram, first 512bytes used by VM
     screen_mem: Array2<bool>,
     screen: S,
+    stack: Vec<u16>,
+}
+
+fn empty_screen() -> Array2<bool> {
+    Array2::<bool>::from_elem((SCREEN_HEIGHT, SCREEN_WIDTH), false)
 }
 
 impl<S: Screen> Chip8<S> {
@@ -61,24 +67,27 @@ impl<S: Screen> Chip8<S> {
         ram[..FONT_SET.len()].copy_from_slice(&FONT_SET);
         ram[512..512 + program.len()].copy_from_slice(program);
 
-        let screen_mem = Array2::<bool>::from_elem((SCREEN_HEIGHT, SCREEN_WIDTH), false);
         Self {
             reg,
             ram,
             screen,
-            screen_mem,
+            screen_mem: empty_screen(),
+            stack: Vec::new(),
         }
     }
 
     #[allow(unused)]
-    pub fn excecute_cmd(&mut self, nibbles: [u8; 4]) {
+    pub fn excecute_cmd(&mut self, nibbles: [u8; 4]) -> Result<()> {
+        let mut has_jumped = false;
         match nibbles {
-            [0, 0, 0xE, 0] => {
-                todo!("Clear scrren")
-            }
+            [0, 0, 0xE, 0] => self.screen_mem = empty_screen(),
 
             [0, 0, 0xE, 0xE] => {
-                todo!("Return subroutine")
+                let Some(new_pc) = self.stack.pop() else {
+                    bail!("Stack empty!");
+                };
+                self.reg.pc = new_pc;
+                has_jumped = true;
             }
 
             [0, a, b, c] => {
@@ -102,11 +111,28 @@ impl<S: Screen> Chip8<S> {
 
             _ => unimplemented!(),
         }
+
+        if !has_jumped {
+            self.reg.pc += 2;
+        };
+        Ok(())
+    }
+
+    pub fn step(&mut self) -> Result<()> {
+        let b0: u8 = self.ram[self.reg.pc as usize];
+        let b1 = self.ram[(self.reg.pc + 1) as usize];
+        let n0 = (b0 & 0xF0) >> 4;
+        let n1 = b0 & 0x0F;
+        let n2 = (b1 & 0xF0) >> 4;
+        let n3 = b1 & 0x0F;
+
+        self.excecute_cmd([n0, n1, n2, n3])
     }
 
     pub fn run(&mut self) -> Result<()> {
         loop {
             self.screen.draw(&self.screen_mem)?;
+            self.step()?;
             if self.screen.key_input()? == Some('q') {
                 break;
             }

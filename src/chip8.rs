@@ -170,11 +170,11 @@ impl<S: Screen> Chip8<S> {
             }
 
             [6, x, _, _] => R![x] = b1,
-            [7, x, _, _] => R![x] += b1,
+            [7, x, _, _] => R![x] = R![x].wrapping_add(b1),
             [8, x, y, 0] => R![x] = R![y],
-            [8, x, y, 1] => R![x] = R![x] | R![y],
-            [8, x, y, 2] => R![x] = R![x] & R![y],
-            [8, x, y, 3] => R![x] = R![x] ^ R![y],
+            [8, x, y, 1] => R![x] |= R![y],
+            [8, x, y, 2] => R![x] &= R![y],
+            [8, x, y, 3] => R![x] ^= R![y],
             [8, x, y, 4] => {
                 let (value, overflow) = R![x].overflowing_add(R![y]); // add with overflow and carry flag logic 
                 R![x] = value;
@@ -183,7 +183,22 @@ impl<S: Screen> Chip8<S> {
             [8, x, y, 5] => {
                 let (value, underflow) = R![x].overflowing_sub(R![y]);
                 R![x] = value;
-                R![0xF] = if !underflow { 1 } else { 0 }; // CHIP-8 Logik: VF = 1 wenn KEIN Borrow (x >= y), sonst 0
+                R![0xF] = if !underflow { 1 } else { 0 };
+            }
+            [8, x, _, 6] => {
+                let lsb = R![x] & 1;
+                R![x] >>= 1;
+                R![0xF] = lsb;
+            }
+            [8, x, y, 7] => {
+                let (value, underflow) = R![y].overflowing_sub(R![x]);
+                R![x] = value;
+                R![0xF] = if !underflow { 1 } else { 0 };
+            }
+            [8, x, _, 0xE] => {
+                let msb = (R![x] >> 7) & 1;
+                R![x] <<= 1;
+                R![0xF] = msb;
             }
 
             _ => unimplemented!(),

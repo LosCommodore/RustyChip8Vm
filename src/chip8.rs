@@ -10,6 +10,8 @@ use std::time::Duration;
 
 use crate::traits::Screen;
 
+const NR_REGISTERS: usize = 16;
+
 // The font set, hardcoded
 const FONT_SET: [u8; 5 * 16] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -34,8 +36,7 @@ const FONT_SET: [u8; 5 * 16] = [
 #[allow(unused)]
 #[derive(Default)]
 pub struct Registers {
-    pub general_registers: [u8; 15],
-    pub flag_register: u8,
+    pub general_registers: [u8; NR_REGISTERS],
     pub pc: u16,
     pub i: u16,
     pub delay_timer: u8,
@@ -49,10 +50,15 @@ pub struct Chip8<S: Screen> {
     screen_mem: Array2<bool>,
     screen: S,
     stack: Vec<u16>,
+    update_screen: bool,
 }
 
 fn empty_screen() -> Array2<bool> {
     Array2::<bool>::from_elem((SCREEN_HEIGHT, SCREEN_WIDTH), false)
+}
+
+fn nibbles_to_u16(a: u8, b: u8, c: u8) -> u16 {
+    (a as u16) << 8 + (b as u16) << 4 + (c as u16)
 }
 
 impl<S: Screen> Chip8<S> {
@@ -73,16 +79,34 @@ impl<S: Screen> Chip8<S> {
             screen,
             screen_mem: empty_screen(),
             stack: Vec::new(),
+            update_screen: false,
         }
     }
 
-    #[allow(unused)]
-    pub fn excecute_cmd(&mut self, nibbles: [u8; 4]) -> Result<()> {
-        let mut has_jumped = false;
-        match nibbles {
-            [0, 0, 0xE, 0] => self.screen_mem = empty_screen(),
+    pub fn step(&mut self) -> Result<()> {
+        macro_rules! R {
+            ($idx:expr) => {
+                self.reg.general_registers[$idx as usize]
+            };
+        }
 
+        let b0: u8 = self.ram[self.reg.pc as usize];
+        let b1 = self.ram[(self.reg.pc + 1) as usize];
+
+        // nibbles
+        let n0 = (b0 & 0xF0) >> 4;
+        let n1 = b0 & 0x0F;
+        let n2 = (b1 & 0xF0) >> 4;
+        let n3 = b1 & 0x0F;
+
+        let mut has_jumped = false;
+        match [n0, n1, n2, n3] {
+            [0, 0, 0xE, 0] => {
+                self.screen_mem = empty_screen();
+                self.update_screen = true
+            }
             [0, 0, 0xE, 0xE] => {
+                // Return from a subroutine
                 let Some(new_pc) = self.stack.pop() else {
                     bail!("Stack empty!");
                 };
@@ -91,22 +115,75 @@ impl<S: Screen> Chip8<S> {
             }
 
             [0, a, b, c] => {
-                let jump = (a as u16).pow(8) + (b as u16).pow(8) + c as u16;
+                /*
+                - Jump
+                - Reset timers and registers,
+                - Reset clear screen,
+                */
+                let jump = nibbles_to_u16(a, b, c);
                 self.reg.pc = jump;
-                todo!(
-                    "
-                    Reset timers and registers, 
-                    Reset clear screen, 
-                    big or little endian ?"
-                );
+                has_jumped = true;
+
+                self.reg.delay_timer = 0;
+                self.reg.sound_timer = 0;
+                self.reg.i = 0;
+                self.reg.general_registers = [0; NR_REGISTERS];
             }
 
-            [1, _a, _b, _c] => {
-                todo!("Jump to adress, no resets")
+            [1, a, b, c] => {
+                // Jump
+                let jump = nibbles_to_u16(a, b, c);
+                self.reg.pc = jump;
+                has_jumped = true;
             }
 
-            [2, _a, _b, _c] => {
-                todo!("Subroutine at")
+            [2, a, b, c] => {
+                // Call subroutine
+                self.stack.push(self.reg.pc + 2);
+                let jump = nibbles_to_u16(a, b, c);
+                self.reg.pc = jump;
+                has_jumped = true;
+            }
+
+            [3, x, _, _] => {
+                // skip next instruction if v[x] equals ab
+                if R![x] == b1 {
+                    self.reg.pc += 4;
+                    has_jumped = true;
+                }
+            }
+
+            [4, x, _, _] => {
+                // skip next instruction if v[x] not equals b1
+                if R![x] != b1 {
+                    self.reg.pc += 4;
+                    has_jumped = true;
+                }
+            }
+
+            [5, x, y, _] => {
+                // skip next instruction if  v[x] = v[y]
+                if R![x] == R![y] {
+                    self.reg.pc += 4;
+                    has_jumped = true;
+                }
+            }
+
+            [6, x, _, _] => R![x] = b1,
+            [7, x, _, _] => R![x] += b1,
+            [8, x, y, 0] => R![x] = R![y],
+            [8, x, y, 1] => R![x] = R![x] | R![y],
+            [8, x, y, 2] => R![x] = R![x] & R![y],
+            [8, x, y, 3] => R![x] = R![x] ^ R![y],
+            [8, x, y, 4] => {
+                let (value, overflow) = R![x].overflowing_add(R![y]); // add with overflow and carry flag logic 
+                R![x] = value;
+                R![0xF] = overflow as u8;
+            }
+            [8, x, y, 5] => {
+                let (value, underflow) = R![x].overflowing_sub(R![y]);
+                R![x] = value;
+                R![0xF] = if !underflow { 1 } else { 0 }; // CHIP-8 Logik: VF = 1 wenn KEIN Borrow (x >= y), sonst 0
             }
 
             _ => unimplemented!(),
@@ -116,17 +193,6 @@ impl<S: Screen> Chip8<S> {
             self.reg.pc += 2;
         };
         Ok(())
-    }
-
-    pub fn step(&mut self) -> Result<()> {
-        let b0: u8 = self.ram[self.reg.pc as usize];
-        let b1 = self.ram[(self.reg.pc + 1) as usize];
-        let n0 = (b0 & 0xF0) >> 4;
-        let n1 = b0 & 0x0F;
-        let n2 = (b1 & 0xF0) >> 4;
-        let n3 = b1 & 0x0F;
-
-        self.excecute_cmd([n0, n1, n2, n3])
     }
 
     pub fn run(&mut self) -> Result<()> {

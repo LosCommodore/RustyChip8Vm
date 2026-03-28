@@ -180,25 +180,41 @@ impl<S: Screen> Chip8<S> {
                 R![x] = value;
                 R![0xF] = overflow as u8;
             }
+
             [8, x, y, 5] => {
                 let (value, underflow) = R![x].overflowing_sub(R![y]);
                 R![x] = value;
                 R![0xF] = if !underflow { 1 } else { 0 };
             }
+
             [8, x, _, 6] => {
                 let lsb = R![x] & 1;
                 R![x] >>= 1;
                 R![0xF] = lsb;
             }
+
             [8, x, y, 7] => {
                 let (value, underflow) = R![y].overflowing_sub(R![x]);
                 R![x] = value;
                 R![0xF] = if !underflow { 1 } else { 0 };
             }
+
             [8, x, _, 0xE] => {
                 let msb = (R![x] >> 7) & 1;
                 R![x] <<= 1;
                 R![0xF] = msb;
+            }
+
+            [9, x, y, 0] => {
+                if R![x] != R![y] {
+                    self.reg.pc += 4;
+                    has_jumped = true;
+                }
+            }
+
+            [0xA, a, b, c] => {
+                let value = nibbles_to_u16(a, b, c);
+                self.reg.i = value;
             }
 
             _ => unimplemented!(),

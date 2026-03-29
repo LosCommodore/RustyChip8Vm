@@ -160,12 +160,15 @@ impl<S: Screen> Chip8<S> {
                 has_jumped = true;
             }
 
-            [0, a, b, c] => {
+            [0, _a, _b, _c] => {
                 /*
+                Jump to a machine code routine at nnn. This instruction is only used on the old computers on which Chip-8
+                was originally implemented. It is ignored by modern interpreters.
                 - Jump
                 - Reset timers and registers,
                 - Reset clear screen,
                 */
+                /*
                 let jump = nibbles_to_u16(a, b, c);
                 self.reg.pc = jump;
                 has_jumped = true;
@@ -174,6 +177,7 @@ impl<S: Screen> Chip8<S> {
                 self.reg.sound_timer = 0;
                 self.reg.i = 0;
                 self.reg.general_registers = [0; NR_REGISTERS];
+                */
             }
 
             [1, a, b, c] => {
@@ -287,6 +291,12 @@ impl<S: Screen> Chip8<S> {
                     self.reg.pc += 4;
                     has_jumped = true;
                 }
+                todo!(
+                    r#"
+                5. Fehlerhafter Key-Check (EX9E / EXA1)
+                Problem: x ist ein numerischer Wert (0-15). Du castest ihn zu char. Das ergibt die ASCII-Steuerzeichen 0-15, nicht die Zeichen '0' bis 'F'. Wenn deine keys-Map Zeichen wie 'a' oder '1' speichert, wird dieser Vergleich nie true ergeben.
+                "#
+                );
             }
 
             [0xE, x, 0xA, 1] => {
@@ -294,6 +304,7 @@ impl<S: Screen> Chip8<S> {
                     self.reg.pc += 4;
                     has_jumped = true;
                 }
+                todo!("fehlerhafter check, siehe oben")
             }
 
             [0xF, x, 0, 7] => {
@@ -323,7 +334,7 @@ impl<S: Screen> Chip8<S> {
             }
 
             [0xF, x, 2, 9] => {
-                self.reg.i += R![x] as u16;
+                self.reg.i = (R![x] as u16) * 5;
             }
 
             [0xF, x, 3, 3] => {

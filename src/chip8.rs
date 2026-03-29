@@ -6,12 +6,17 @@ use anyhow::Result;
 use anyhow::bail;
 use ndarray::Array2;
 use rand::RngExt;
+use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
 
 use crate::traits::Screen;
 
 const NR_REGISTERS: usize = 16;
+
+const ALLOWED_KEYS: [char; 16] = [
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+];
 
 // The font set, hardcoded
 const FONT_SET: [u8; 5 * 16] = [
@@ -52,6 +57,7 @@ pub struct Chip8<S: Screen> {
     screen: S,
     stack: Vec<u16>,
     update_screen: bool,
+    keys: HashMap<char, bool>,
 }
 
 fn empty_screen() -> Array2<bool> {
@@ -74,7 +80,9 @@ impl<S: Screen> Chip8<S> {
         ram[..FONT_SET.len()].copy_from_slice(&FONT_SET);
         ram[512..512 + program.len()].copy_from_slice(program);
 
+        let mut keys: HashMap<char, bool> = ALLOWED_KEYS.iter().map(|&k| (k, false)).collect();
         Self {
+            keys,
             reg,
             ram,
             screen,
@@ -105,7 +113,22 @@ impl<S: Screen> Chip8<S> {
         }
         self.reg.general_registers[0xF] = has_flipped as u8;
     }
-    pub fn step(&mut self) -> Result<()> {
+
+    fn handle_keyboard(&mut self) -> Result<bool> {
+        match self.screen.key_input()? {
+            Some(('q', true)) => {
+                return Ok(false);
+            }
+            Some((k, v)) => {
+                if self.keys.contains_key(&k) {
+                    self.keys.insert(k, v);
+                };
+            }
+            None => return Ok(true),
+        }
+        Ok(true)
+    }
+    pub fn step(&mut self) -> Result<bool> {
         macro_rules! R {
             ($idx:expr) => {
                 self.reg.general_registers[$idx as usize]
@@ -258,6 +281,30 @@ impl<S: Screen> Chip8<S> {
                 self.update_screen = true
             }
 
+            [0xE, x, 9, 0xE] => {
+                if let Some(true) = self.keys.get(&(x as char)) {
+                    self.reg.pc += 4;
+                    has_jumped = true;
+                }
+            }
+
+            [0xE, x, 0xA, 1] => {
+                if let Some(false) = self.keys.get(&(x as char)) {
+                    self.reg.pc += 4;
+                    has_jumped = true;
+                }
+            }
+
+            [0xF, x, 0, 7] => {
+                R![x] = self.reg.delay_timer;
+            }
+
+            [0xF, x, 0, 0xA] => loop {
+                if !self.handle_keyboard()? {
+                    return Ok(false);
+                }
+            },
+
             _ => unimplemented!(),
         }
 
@@ -270,8 +317,9 @@ impl<S: Screen> Chip8<S> {
     pub fn run(&mut self) -> Result<()> {
         loop {
             self.screen.draw(&self.screen_mem)?;
-            self.step()?;
-            if self.screen.key_input()? == Some('q') {
+            //self.step()?;
+
+            if !self.handle_keyboard()? {
                 break;
             }
             thread::sleep(Duration::from_millis(100));

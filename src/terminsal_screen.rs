@@ -2,12 +2,17 @@
 
 use crate::traits::Screen;
 use anyhow::Result;
+use crossterm::execute;
 
+use crossterm::event::{
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use crossterm::{
     ExecutableCommand,
     event::{self, KeyCode},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+
 use ndarray::Array2;
 use ratatui::{prelude::*, widgets::*};
 use std::io::{Stdout, stdout};
@@ -17,9 +22,18 @@ pub struct TerminalScreen {
 
 impl<'a> TerminalScreen {
     pub fn new() -> Result<Self> {
-        stdout().execute(EnterAlternateScreen)?;
         enable_raw_mode()?;
-        let terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+        let mut stdout = stdout();
+
+        // 2. Enter Alternate Screen AND push enhancement flags on the SAME handle
+        // Note: We use REPORT_EVENT_TYPES to get Press/Repeat/Release info
+        execute!(
+            stdout,
+            EnterAlternateScreen,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
+        )?;
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
 
         Ok(Self { terminal })
     }
@@ -27,9 +41,19 @@ impl<'a> TerminalScreen {
 
 impl Drop for TerminalScreen {
     fn drop(&mut self) {
+        // Use a single stdout handle for all cleanup commands
+        let mut terminal_out = std::io::stdout();
+
+        // 1. Reset all terminal states in reverse order of initialization
+        let _ = execute!(
+            terminal_out,
+            crossterm::cursor::Show,     // Ensure cursor is visible
+            PopKeyboardEnhancementFlags, // Disable the Kitty Protocol
+            LeaveAlternateScreen         // Return to the normal shell screen
+        );
+
+        // 2. Disable raw mode last (restores normal line buffering)
         let _ = disable_raw_mode();
-        let _ = stdout().execute(LeaveAlternateScreen);
-        let _ = stdout().execute(crossterm::cursor::Show);
     }
 }
 
@@ -57,11 +81,21 @@ impl<'a> Screen for TerminalScreen {
 
         Ok(())
     }
-    fn key_input(&mut self) -> Result<Option<char>> {
+    fn key_input(&mut self) -> Result<Option<(char, bool)>> {
         if event::poll(std::time::Duration::from_millis(0))? {
-            if let event::Event::Key(key) = event::read()? {
-                if let KeyCode::Char(c) = key.code {
-                    return Ok(Some(c));
+            if let event::Event::Key(key_event) = event::read()? {
+                match key_event.kind {
+                    event::KeyEventKind::Press => {
+                        if let KeyCode::Char(c) = key_event.code {
+                            return Ok(Some((c, true)));
+                        }
+                    }
+                    event::KeyEventKind::Repeat => (),
+                    event::KeyEventKind::Release => {
+                        if let KeyCode::Char(c) = key_event.code {
+                            return Ok(Some((c, false)));
+                        }
+                    }
                 }
             }
         }

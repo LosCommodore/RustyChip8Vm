@@ -13,7 +13,7 @@ use std::time::Duration;
 use crate::traits::Screen;
 
 const NR_REGISTERS: usize = 16;
-
+const FRAME_TIME_EXPECTED: f32 = 1f32 / 500f32; // for limiting VM speed
 const ALLOWED_KEYS: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
 ];
@@ -114,19 +114,20 @@ impl<S: Screen> Chip8<S> {
         self.reg.general_registers[0xF] = has_flipped as u8;
     }
 
-    fn handle_keyboard(&mut self) -> Result<bool> {
+    fn handle_keyboard(&mut self) -> Result<Option<(char, bool)>> {
         match self.screen.key_input()? {
             Some(('q', true)) => {
-                return Ok(false);
+                return Ok(Some(('q', true)));
             }
             Some((k, v)) => {
                 if self.keys.contains_key(&k) {
                     self.keys.insert(k, v);
+                    return Ok(Some((k, true)));
                 };
             }
-            None => return Ok(true),
+            None => return Ok(None),
         }
-        Ok(true)
+        Ok(None)
     }
     pub fn step(&mut self) -> Result<bool> {
         macro_rules! R {
@@ -300,10 +301,54 @@ impl<S: Screen> Chip8<S> {
             }
 
             [0xF, x, 0, 0xA] => loop {
-                if !self.handle_keyboard()? {
-                    return Ok(false);
+                if let Some((k, true)) = self.handle_keyboard()? {
+                    if k == 'q' {
+                        return Ok(false);
+                    }
+                    R![x] = k as u8;
                 }
+                thread::sleep(Duration::from_micros((FRAME_TIME_EXPECTED * 1e6) as u64));
             },
+
+            [0xF, x, 1, 5] => {
+                self.reg.delay_timer = R![x];
+            }
+
+            [0xF, x, 1, 8] => {
+                self.reg.sound_timer = R![x];
+            }
+
+            [0xF, x, 1, 0xE] => {
+                self.reg.i += R![x] as u16;
+            }
+
+            [0xF, x, 2, 9] => {
+                self.reg.i += R![x] as u16;
+            }
+
+            [0xF, x, 3, 3] => {
+                // store BCD at v[x] in i, i+1, i+2
+                self.ram[self.reg.i as usize] = R![x] / 100;
+                self.ram[(self.reg.i + 1) as usize] = (R![x] % 100) / 10;
+                self.ram[(self.reg.i + 2) as usize] = R![x] % 10;
+            }
+            [0xF, x, 5, 5] => {
+                let x = x as usize;
+                let start = self.reg.i as usize;
+                let end = start + x + 1;
+                let source = &self.reg.general_registers[..=x];
+
+                self.ram[start..end].copy_from_slice(source);
+            }
+
+            [0xF, x, 6, 5] => {
+                let x = x as usize;
+                let start = self.reg.i as usize;
+                let end = start + x + 1;
+                let source = &self.ram[start..end];
+
+                self.reg.general_registers[..=x].copy_from_slice(source);
+            }
 
             _ => unimplemented!(),
         }
@@ -311,15 +356,20 @@ impl<S: Screen> Chip8<S> {
         if !has_jumped {
             self.reg.pc += 2;
         };
-        Ok(())
+        Ok(true)
     }
 
     pub fn run(&mut self) -> Result<()> {
         loop {
             self.screen.draw(&self.screen_mem)?;
-            //self.step()?;
 
-            if !self.handle_keyboard()? {
+            /*
+            if !self.step()? {
+                break;
+            }
+            */
+
+            if let Some(('q', true)) = self.handle_keyboard()? {
                 break;
             }
             thread::sleep(Duration::from_millis(100));

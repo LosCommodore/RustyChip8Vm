@@ -5,6 +5,7 @@ use anyhow::Ok;
 use anyhow::Result;
 use anyhow::bail;
 use ndarray::Array2;
+use rand::RngExt;
 use std::thread;
 use std::time::Duration;
 
@@ -83,6 +84,27 @@ impl<S: Screen> Chip8<S> {
         }
     }
 
+    fn draw_sprite(&mut self, x: u8, y: u8, height: u8) {
+        let x = x as usize;
+        let y = y as usize;
+        let height = height as usize;
+        let mut has_flipped = false;
+
+        for row in 0..height {
+            let abs_y = y + row;
+            let mem = self.ram[self.reg.i as usize + row];
+            for col in 0..8usize {
+                let abs_x = x + col;
+                let old_bit = self.screen_mem[[abs_y, abs_x]];
+                let new_bit = (mem >> (7 - col) & 1) == 1;
+                if old_bit != new_bit {
+                    has_flipped = true;
+                }
+                self.screen_mem[[abs_y, abs_x]] = old_bit ^ new_bit;
+            }
+        }
+        self.reg.general_registers[0xF] = has_flipped as u8;
+    }
     pub fn step(&mut self) -> Result<()> {
         macro_rules! R {
             ($idx:expr) => {
@@ -215,6 +237,25 @@ impl<S: Screen> Chip8<S> {
             [0xA, a, b, c] => {
                 let value = nibbles_to_u16(a, b, c);
                 self.reg.i = value;
+            }
+
+            [0xB, a, b, c] => {
+                let value = nibbles_to_u16(a, b, c);
+                self.reg.pc = value + R![0] as u16;
+                has_jumped = true;
+            }
+
+            [0xC, x, _, _] => {
+                let mut rng = rand::rng();
+                let n: u8 = rng.random();
+                R![x] = n & b1;
+            }
+
+            [0xD, x, y, height] => {
+                let p_x = R![x];
+                let p_y = R![y];
+                self.draw_sprite(p_x, p_y, height);
+                self.update_screen = true
             }
 
             _ => unimplemented!(),

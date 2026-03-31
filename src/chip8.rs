@@ -6,17 +6,19 @@ use anyhow::Result;
 use anyhow::bail;
 use ndarray::Array2;
 use rand::RngExt;
-use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 
 use crate::traits::Screen;
 
 const NR_REGISTERS: usize = 16;
-const FRAME_TIME_EXPECTED: f32 = 1f32 / 500f32; // for limiting VM speed
 const ALLOWED_KEYS: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
 ];
+const QUIT: u8 = 255;
+const TIMER_DELAY: f64 = 1f64 / 60f64;
+const FRAME_TIME_EXPECTED: f64 = 1f64 / 500f64; // for limiting VM speed
 
 // The font set, hardcoded
 const FONT_SET: [u8; 5 * 16] = [
@@ -57,7 +59,7 @@ pub struct Chip8<S: Screen> {
     screen: S,
     stack: Vec<u16>,
     update_screen: bool,
-    keys: HashMap<char, bool>,
+    key_pressed: [bool; ALLOWED_KEYS.len()],
 }
 
 fn empty_screen() -> Array2<bool> {
@@ -80,9 +82,8 @@ impl<S: Screen> Chip8<S> {
         ram[..FONT_SET.len()].copy_from_slice(&FONT_SET);
         ram[512..512 + program.len()].copy_from_slice(program);
 
-        let mut keys: HashMap<char, bool> = ALLOWED_KEYS.iter().map(|&k| (k, false)).collect();
         Self {
-            keys,
+            key_pressed: [false; ALLOWED_KEYS.len()],
             reg,
             ram,
             screen,
@@ -114,21 +115,29 @@ impl<S: Screen> Chip8<S> {
         self.reg.general_registers[0xF] = has_flipped as u8;
     }
 
-    fn handle_keyboard(&mut self) -> Result<Option<(char, bool)>> {
+    fn handle_keyboard(&mut self) -> Result<Option<(u8, bool)>> {
         match self.screen.key_input()? {
             Some(('q', true)) => {
-                return Ok(Some(('q', true)));
+                return Ok(Some((QUIT, true)));
             }
             Some((k, v)) => {
-                if self.keys.contains_key(&k) {
-                    self.keys.insert(k, v);
-                    return Ok(Some((k, true)));
+                let idx = ALLOWED_KEYS.iter().position(|&x| x == k);
+
+                if let Some(i) = idx {
+                    self.key_pressed[i] = v;
+                    return Ok(Some((i as u8, true)));
                 };
             }
             None => return Ok(None),
         }
         Ok(None)
     }
+
+    fn decrement_timers(&mut self) {
+        self.reg.delay_timer = self.reg.delay_timer.saturating_sub(1);
+        self.reg.sound_timer = self.reg.sound_timer.saturating_sub(1);
+    }
+
     pub fn step(&mut self) -> Result<bool> {
         macro_rules! R {
             ($idx:expr) => {
@@ -287,24 +296,19 @@ impl<S: Screen> Chip8<S> {
             }
 
             [0xE, x, 9, 0xE] => {
-                if let Some(true) = self.keys.get(&(x as char)) {
+                // conditional skip if key pressed
+                if self.key_pressed[x as usize] {
                     self.reg.pc += 4;
                     has_jumped = true;
                 }
-                todo!(
-                    r#"
-                5. Fehlerhafter Key-Check (EX9E / EXA1)
-                Problem: x ist ein numerischer Wert (0-15). Du castest ihn zu char. Das ergibt die ASCII-Steuerzeichen 0-15, nicht die Zeichen '0' bis 'F'. Wenn deine keys-Map Zeichen wie 'a' oder '1' speichert, wird dieser Vergleich nie true ergeben.
-                "#
-                );
             }
 
             [0xE, x, 0xA, 1] => {
-                if let Some(false) = self.keys.get(&(x as char)) {
+                // conditional skip if key not pressed
+                if !self.key_pressed[x as usize] {
                     self.reg.pc += 4;
                     has_jumped = true;
                 }
-                todo!("fehlerhafter check, siehe oben")
             }
 
             [0xF, x, 0, 7] => {
@@ -313,12 +317,12 @@ impl<S: Screen> Chip8<S> {
 
             [0xF, x, 0, 0xA] => loop {
                 if let Some((k, true)) = self.handle_keyboard()? {
-                    if k == 'q' {
+                    if k == QUIT {
                         return Ok(false);
                     }
                     R![x] = k as u8;
                 }
-                thread::sleep(Duration::from_micros((FRAME_TIME_EXPECTED * 1e6) as u64));
+                thread::sleep(Duration::from_secs_f64(FRAME_TIME_EXPECTED));
             },
 
             [0xF, x, 1, 5] => {
@@ -371,19 +375,31 @@ impl<S: Screen> Chip8<S> {
     }
 
     pub fn run(&mut self) -> Result<()> {
+        let mut timer = Instant::now();
+        let mut frame_start: Instant;
         loop {
-            self.screen.draw(&self.screen_mem)?;
+            frame_start = Instant::now();
 
-            /*
             if !self.step()? {
                 break;
             }
-            */
 
-            if let Some(('q', true)) = self.handle_keyboard()? {
+            if self.update_screen {
+                self.screen.draw(&self.screen_mem)?;
+            }
+
+            if let Some((QUIT, true)) = self.handle_keyboard()? {
                 break;
             }
-            thread::sleep(Duration::from_millis(100));
+
+            if timer.elapsed().as_secs_f64() > TIMER_DELAY {
+                timer = Instant::now();
+                self.decrement_timers();
+            }
+            let sleep_frame = FRAME_TIME_EXPECTED - frame_start.elapsed().as_secs_f64();
+            if sleep_frame > 0f64 {
+                thread::sleep(Duration::from_secs_f64(sleep_frame));
+            }
         }
         Ok(())
     }

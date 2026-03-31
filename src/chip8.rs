@@ -41,7 +41,6 @@ const FONT_SET: [u8; 5 * 16] = [
 ];
 
 /// Registers and pseudo registers
-#[allow(unused)]
 #[derive(Default)]
 pub struct Registers {
     pub general_registers: [u8; NR_REGISTERS],
@@ -51,7 +50,6 @@ pub struct Registers {
     pub sound_timer: u8,
 }
 
-#[allow(unused)]
 pub struct Chip8<S: Screen> {
     reg: Registers,
     ram: [u8; 1024 * 4], // 4kb ram, first 512bytes used by VM
@@ -67,11 +65,10 @@ fn empty_screen() -> Array2<bool> {
 }
 
 fn nibbles_to_u16(a: u8, b: u8, c: u8) -> u16 {
-    (a as u16) << 8 + (b as u16) << 4 + (c as u16)
+    ((a as u16) << 8) + ((b as u16) << 4) + (c as u16)
 }
 
 impl<S: Screen> Chip8<S> {
-    #[allow(unused)]
     pub fn new(program: &[u8], screen: S) -> Self {
         // Initialize registers
         let mut reg = Registers::default();
@@ -102,8 +99,14 @@ impl<S: Screen> Chip8<S> {
         for row in 0..height {
             let abs_y = y + row;
             let mem = self.ram[self.reg.i as usize + row];
+            if abs_y >= SCREEN_HEIGHT {
+                continue;
+            }
             for col in 0..8usize {
                 let abs_x = x + col;
+                if abs_x >= SCREEN_WIDTH {
+                    continue;
+                }
                 let old_bit = self.screen_mem[[abs_y, abs_x]];
                 let new_bit = (mem >> (7 - col) & 1) == 1;
                 if old_bit != new_bit {

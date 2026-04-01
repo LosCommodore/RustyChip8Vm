@@ -98,12 +98,6 @@ impl<S: Screen> Chip8<S> {
         }
     }
 
-    /*************  ✨ Windsurf Command ⭐  *************/
-    /// Draws a sprite at position (x, y) with height in pixels.
-    /// The sprite is drawn from memory starting at self.reg.i.
-    /// If a pixel is flipped from 0 to 1, or 1 to 0, the VF register is set to 1.
-    /// If any pixels are flipped, the `update_screen` flag is set to true.
-    /*******  bdda06c3-7c06-4778-b484-aca32f3ee7e5  *******/
     fn draw_sprite(&mut self, x: u8, y: u8, height: u8) {
         let x = x as usize;
         let y = y as usize;

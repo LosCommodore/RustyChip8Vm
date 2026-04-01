@@ -13,10 +13,18 @@ use std::time::Instant;
 use crate::traits::Screen;
 
 const NR_REGISTERS: usize = 16;
+/*
 const ALLOWED_KEYS: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
 ];
+*/
+
+const ALLOWED_KEYS: [char; 16] = [
+    '1', '2', '3', '4', 'q', 'w', 'e', 'r', 'a', 's', 'd', 'f', 'y', 'x', 'c', 'v',
+];
+
 const QUIT: u8 = 255;
+const QUIT_KEY: char = '^';
 const TIMER_DELAY: f64 = 1f64 / 60f64;
 const FRAME_TIME_EXPECTED: f64 = 1f64 / 500f64; // for limiting VM speed
 
@@ -115,7 +123,8 @@ impl<S: Screen> Chip8<S> {
                 }
                 let old_bit = self.screen_mem[[abs_y, abs_x]];
                 let new_bit = (mem >> (7 - col) & 1) == 1;
-                if old_bit != new_bit {
+                if old_bit && new_bit {
+                    // Nur wenn beide 1 sind, wird ein Pixel gelöscht
                     has_flipped = true;
                 }
                 self.screen_mem[[abs_y, abs_x]] = old_bit ^ new_bit;
@@ -126,7 +135,7 @@ impl<S: Screen> Chip8<S> {
 
     fn handle_keyboard(&mut self) -> Result<Option<(u8, bool)>> {
         match self.screen.key_input()? {
-            Some(('q', true)) => {
+            Some((QUIT_KEY, true)) => {
                 return Ok(Some((QUIT, true)));
             }
             Some((k, v)) => {
@@ -134,7 +143,7 @@ impl<S: Screen> Chip8<S> {
 
                 if let Some(i) = idx {
                     self.key_pressed[i] = v;
-                    return Ok(Some((i as u8, true)));
+                    return Ok(Some((i as u8, v)));
                 };
             }
             None => return Ok(None),
@@ -306,7 +315,9 @@ impl<S: Screen> Chip8<S> {
 
             [0xE, x, 9, 0xE] => {
                 // conditional skip if key pressed
-                if self.key_pressed[x as usize] {
+                let key: usize = R![x] as usize;
+
+                if self.key_pressed[key] {
                     self.reg.pc += 4;
                     has_jumped = true;
                 }
@@ -314,7 +325,8 @@ impl<S: Screen> Chip8<S> {
 
             [0xE, x, 0xA, 1] => {
                 // conditional skip if key not pressed
-                if !self.key_pressed[x as usize] {
+                let key: usize = R![x] as usize;
+                if !self.key_pressed[key] {
                     self.reg.pc += 4;
                     has_jumped = true;
                 }

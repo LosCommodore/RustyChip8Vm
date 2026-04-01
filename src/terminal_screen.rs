@@ -64,7 +64,7 @@ impl<'a> Screen for TerminalScreen {
 
         self.terminal.draw(|f| {
             let (height, width) = mem.dim();
-            let area = Rect::new(0, 0, width as u16, height as u16);
+            let area = Rect::new(0, 0, (width as u16) * 2, height as u16); // *2 due to two spaces of an rectangle
             let mut lines = Vec::new();
             for y in 0..height {
                 let mut spans = Vec::new();

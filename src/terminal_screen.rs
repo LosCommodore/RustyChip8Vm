@@ -25,13 +25,18 @@ impl<'a> TerminalScreen {
         enable_raw_mode()?;
         let mut stdout = stdout();
 
-        // 2. Enter Alternate Screen AND push enhancement flags on the SAME handle
-        // Note: We use REPORT_EVENT_TYPES to get Press/Repeat/Release info
-        execute!(
-            stdout,
-            EnterAlternateScreen,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
-        )?;
+       
+        execute!(stdout, EnterAlternateScreen)?;
+
+        if !cfg!(windows) {
+            execute!(
+                stdout,
+                PushKeyboardEnhancementFlags(
+                    KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                )
+            )?;
+        }
+
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 

@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
+use crate::audio::Beeper;
 use crate::traits::Screen;
 
 const NR_REGISTERS: usize = 16;
@@ -66,6 +67,7 @@ pub struct Chip8<S: Screen> {
     stack: Vec<u16>,
     update_screen: bool,
     key_pressed: [bool; ALLOWED_KEYS.len()],
+    beeper: Beeper,
 }
 
 fn empty_screen() -> Array2<bool> {
@@ -87,7 +89,10 @@ impl<S: Screen> Chip8<S> {
         ram[..FONT_SET.len()].copy_from_slice(&FONT_SET);
         ram[512..512 + program.len()].copy_from_slice(program);
 
+        let beeper = Beeper::new(200f32);
+
         Self {
+            beeper,
             key_pressed: [false; ALLOWED_KEYS.len()],
             reg,
             ram,
@@ -405,6 +410,12 @@ impl<S: Screen> Chip8<S> {
 
             if let Some((QUIT, true)) = self.handle_keyboard()? {
                 break;
+            }
+
+            if self.reg.sound_timer > 0 {
+                self.beeper.player.play();
+            } else {
+                self.beeper.player.pause();
             }
 
             if timer.elapsed().as_secs_f64() > TIMER_DELAY {

@@ -67,6 +67,11 @@ The CHIP-8 keypad is mapped to keyboard keys:
 - A S D F
 - Z X C V
 
+## Inspired by the Book "Computer Science From Scratch" by David Kopec
+https://davekopec.com/
+
+You can find out more about the book here: https://computersciencefromscratch.com/
+
 ## Screenshots
 
 ### Blinky Game
